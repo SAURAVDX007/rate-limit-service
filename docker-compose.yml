@@ -1,10 +1,36 @@
 services:
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    ports: ["6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 2s
       retries: 5
+
+  # Two instances sharing one Redis. This is the multi-instance correctness
+  # requirement: the limit must hold across both, not per-process.
+  app1:
+    build: .
+    environment:
+      REDIS_ADDR: redis:6379
+      INSTANCE_ID: app1
+    ports: ["8081:8080"]
+    depends_on:
+      redis: {condition: service_healthy}
+
+  app2:
+    build: .
+    environment:
+      REDIS_ADDR: redis:6379
+      INSTANCE_ID: app2
+    ports: ["8082:8080"]
+    depends_on:
+      redis: {condition: service_healthy}
+
+  lb:
+    image: nginx:alpine
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["8080:80"]
+    depends_on: [app1, app2]
