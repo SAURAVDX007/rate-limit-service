@@ -1,11 +1,8 @@
 package limiter
 
 import (
-	"errors"
 	"time"
 )
-
-var ErrCostExceedsCapacity = errors.New("cost exceeds bucket capacity")
 
 type TokenBucket struct {
 	tokens     float64
@@ -62,4 +59,17 @@ func (b *TokenBucket) timeToFull() time.Duration {
 		return 0
 	}
 	return time.Duration((b.capacity - b.tokens) / b.refillRate * float64(time.Second))
+}
+
+// Peek reports what Allow would decide, without consuming tokens or
+// mutating the bucket. Refill is computed on a copy.
+func (b *TokenBucket) Peek(now time.Time, cost float64) (Result, error) {
+	snapshot := *b
+	res, err := snapshot.Allow(now, cost)
+	if !res.Allowed {
+		return res, err
+	}
+	// Allow deducted from the copy; report pre-deduction capacity.
+	res.RemainingTokens += cost
+	return res, err
 }
