@@ -37,3 +37,26 @@ Deep check: reports unhealthy when it genuinely cannot serve. Known risk —
 couples instance health to a shared dependency, so a Redis hiccup can pull
 every instance from rotation at once. Proper fix is splitting /livez
 (shallow) from /readyz (deep); noted as future work.
+
+## Lazy refill, not a background ticker
+Tokens are computed on arrival from (now − LastRefill) × rate, not added by
+a scheduled job. Ticker cost scales with buckets that exist; lazy cost
+scales with requests served — and in production those differ by orders of
+magnitude, with the gap widening as tenants are added.
+Rejected: background refill goroutine. Beyond cost, it needs leader election
+once there are multiple instances (otherwise every bucket refills N times
+per second), it prevents TTL-based cleanup of idle keys, and its resolution
+is capped by the tick interval.
+Trade-off accepted: every allowed request performs a write. Still cheaper
+than a ticker at any traffic level.
+
+## New buckets start full
+A missing key must be indistinguishable from a full bucket — that
+equivalence is what makes TTL-based eviction of idle keys safe. Start at
+anything less and a tenant's effective limit depends on whether Redis
+happened to evict their key, which is invisible and non-deterministic.
+Rejected: start empty (new tenants wait before their first request);
+start at 50% (breaks the missing-key equivalence above).
+If new tenants shouldn't get a full burst, that belongs in a different
+*rule* for them, not in bucket initialisation.
+
